@@ -6,8 +6,6 @@ import random
 import time
 from typing import Callable
 from urllib.parse import urlparse
-
-from pip._internal.utils import logging
 from selenium import webdriver
 import selenium
 from selenium.webdriver.chrome.webdriver import WebDriver
@@ -17,11 +15,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.common.by import By
 import re
-from types import SimpleNamespace
 
-
-
-from bs4 import BeautifulSoup, NavigableString
+from bs4 import BeautifulSoup
 
 
 class WebScrapper:
@@ -38,14 +33,19 @@ class WebScrapper:
         self.statistics["total_count"] = 0
         self.statistics["total_words"] = 0
         self.statistics["Aborts"]: dict[str, int | list[str]] = { "Aborts Count": 0, "Aborts Urls": [], "Domain is unknown": 0, "Unknown urls": [] }
+        self.statistics["fandoms"] = {}
+
 
         options = webdriver.ChromeOptions()
+
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
         options.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         )
-        # options.add_argument("--headless=new")
+        options.add_argument("--headless=new")
         self.driver = webdriver.Chrome(options=options)
-
 
 
 
@@ -54,8 +54,8 @@ class WebScrapper:
         "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
     }
     timeout = 15
-    small_timeout = 4
-    fail_retries = 3
+    small_timeout = 7
+    fail_retries = 6
 
     def make_request(self, url: str, wait_and_find: Callable[[WebDriver, int], WebElement]) -> BeautifulSoup | None:
         headers = self.headers
@@ -66,15 +66,16 @@ class WebScrapper:
 
 
         driver.set_page_load_timeout(timeout)
-
         for attempt in range(fail_retries):
             try:
+                print("initial waiting...")
+                time.sleep(random.uniform(2, 5))
+
                 driver.get(url)
 
 
-
                 element = wait_and_find(driver, self.small_timeout)
-
+                print("element found")
                 # print(element.text)
 
                 contents = driver.page_source
@@ -84,9 +85,11 @@ class WebScrapper:
                 return htmlka
 
             except Exception as e:
-                # print(f"ERROR!! {e}. Trying again...")
                 print("ERROR!!! Trying again...")
-                time.sleep(random.uniform(2, 5))
+                print("error waiting...")
+                time.sleep(random.uniform(5, 10))
+
+                # print(f"ERROR!! {e}. Trying again...")
 
 
         aborts_statistics["Aborts Count"] += 1
@@ -100,6 +103,7 @@ class WebScrapper:
         print(f"ao3: {url}")
 
         def element_search(driver: WebDriver,timeout: int):
+            print("waiting for element...")
             element = WebDriverWait(driver, timeout).until(
                 ec.presence_of_element_located((By.CLASS_NAME, "words"))
             )
@@ -115,7 +119,7 @@ class WebScrapper:
         words_count = htmlka.find("dd", class_="words").text.strip().replace(",", "")
 
         words_int = int(words_count)
-        print(words_int)
+        print(f"Words: {words_int:,}")
 
 
 
@@ -157,7 +161,7 @@ class WebScrapper:
         if "k+" in words_section.group(0).lower():
             words_int *= 1000
 
-        print(words_int)
+        print(f"Words: {words_int:,}")
 
         statistics["total_count"] += 1
         statistics["total_words"] += words_int
@@ -194,7 +198,7 @@ class WebScrapper:
         if "k+" in words_section.group(0).lower():
             words_int *= 1000
 
-        print(words_int)
+        print(f"Words: {words_int:,}")
 
         statistics["total_count"] += 1
         statistics["total_words"] += words_int
@@ -251,7 +255,7 @@ class WebScrapper:
         if "k" in words_section.group(0).lower():
             words_int *= 1000
 
-        print(words_int)
+        print(f"Words: {words_int:,}")
 
         statistics["total_count"] += 1
         statistics["total_words"] += words_int
@@ -307,7 +311,7 @@ class WebScrapper:
         if "k" in words_section.group(0).lower():
             words_int *= 1000
 
-        print(words_int)
+        print(f"Words: {words_int:,}")
 
         statistics["total_count"] += 1
         statistics["total_words"] += words_int
@@ -355,7 +359,6 @@ class WebScrapper:
 
 
 
-
         self.statistics["Aborts"]["Domain is unknown"] += 1
         self.statistics["Aborts"]["Unknown urls"].append(href)
 
@@ -383,17 +386,38 @@ def read_and_parse_html(html_filepath: str) -> BeautifulSoup | None:
         return soupchik
 
 
-def folder_case(element):
+def folder_case(stat: dict, element, scrapper: WebScrapper):
 
-    for child in element.children:
+    # dt - titles
 
 
-       
+    for child in element.find_all("dt", recursive=False):
 
-# def link_case(url):
-    # web parser logic
+        title = child.find("h3", recursive=False)
+        if title:
+            title = title.text
+            stat[title] = {}
+            print(title)
+            folder = child.find_next_sibling("dl", recursive=False)
+            folder_case(stat[title], folder, scrapper)
 
-def explore_fandom():
+
+
+        stat["fics"] = []
+
+        # TODO add_Date class in vscode
+        stat["add_date"] = []
+
+        links = child.find_all("a")
+
+        if links:
+
+            for link in links:
+                link = link.get("href")
+                # scrapper.web_scrapper_resolver(link)
+                print()
+                stat["fics"].append(link.strip())
+                # print(link)
 
 
 def bookmark_calculate(html_filepath: str) -> WebScrapper:
@@ -402,6 +426,7 @@ def bookmark_calculate(html_filepath: str) -> WebScrapper:
     if not bookmarks:
         exit(1)
 
+    # folder where fanfics stored
     fanfics_dt = bookmarks.find("h3", string="Прочитано")
 
     if fanfics_dt is None:
@@ -416,13 +441,22 @@ def bookmark_calculate(html_filepath: str) -> WebScrapper:
     web_scrapper = WebScrapper()
 
     try:
-        for dt in fanfics.find_all('dt', recursive=False, limit=None):
-
-            for link in dt.find_all('a'):
-                # print(link.text.strip())
-                href = link.get('href')
-                web_scrapper.scrap(href)
-                print()
+        # for dt in fanfics.find_all('dt', recursive=False, limit=None):
+        #
+        #     folder_case(dt)
+        #     for link in dt.find_all('a'):
+        #         # print(link.text.strip())
+        #         href = link.get('href')
+        #         web_scrapper.scrap(href)
+        #         print()
+        # for fan in fanfics.children:
+        #     # def folder_case():
+        #     #     web_scrapper.statistics[] = { }
+        #
+        #
+        #
+        #     print(fan.text)
+        folder_case(web_scrapper.statistics["fandoms"], fanfics, web_scrapper)
 
     finally:
         web_scrapper.dispose()
@@ -435,7 +469,7 @@ def bookmark_calculate(html_filepath: str) -> WebScrapper:
 
 def main():
 
-    arg_parser = argparse.ArgumentParser(description='Calculates amount of words of fanfics')
+    arg_parser = argparse.ArgumentParser(description='Calculates amount of words of fanfics in bookmarks')
     arg_parser.add_argument('input', type = str, nargs="+", default=None, help = 'Path to html file')
 
     args = arg_parser.parse_args()
@@ -449,12 +483,20 @@ def main():
     web_scrapper = bookmark_calculate(html_filepath)
 
     # web_scrapper = WebScrapper()
-    # web_scrapper.scrap("https://forums.spacebattles.com/threads/sandbox-entity9silvergens-worm-oneshots-snippets.1299519/")
+    # web_scrapper.scrap("")
 
     statistics = web_scrapper.statistics
 
-    info = {"datetime": f"{datetime.datetime.now().isoformat()}", "scrapped_info": statistics }
-    print(json.dumps(info, indent=4, sort_keys=True))
+    bookmark_date = re.search(r"bookmarks_(\d)+_(\d+)_(\d+)", html_filepath)
+    day = bookmark_date.group(2)
+    month = bookmark_date.group(1)
+    year = bookmark_date.group(3)
+    bookmark_date = datetime.date(int(year)+2000, int(month), int(day))
+
+    info = {"datetime": f"{datetime.datetime.now().isoformat()}",
+            "bookmark_date": f"{bookmark_date.isoformat()}",
+            "scrapped_info": statistics }
+    print(json.dumps(info, indent=4, sort_keys=True, ensure_ascii=False))
     print(f"{statistics['total_words']:,}")
 
 
