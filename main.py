@@ -4,6 +4,7 @@ import json
 import os
 import random
 import time
+from itertools import count
 from typing import Callable
 from urllib.parse import urlparse
 from selenium import webdriver
@@ -16,10 +17,10 @@ from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.common.by import By
 import re
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 
-class WebScrapper:
+class WebScraper:
 
     def dispose(self):
         self.driver.quit()
@@ -32,7 +33,10 @@ class WebScrapper:
 
         self.statistics["total_count"] = 0
         self.statistics["total_words"] = 0
-        self.statistics["Aborts"]: dict[str, int | list[str]] = { "Aborts Count": 0, "Aborts Urls": [], "Domain is unknown": 0, "Unknown urls": [] }
+        self.statistics["Aborts"]: dict[str, int | list[str]] = { "Aborts Count": 0,
+                                                                  "Aborts Urls": [],
+                                                                  "Domain is unknown": 0,
+                                                                  "Unknown urls": [] }
         self.statistics["fandoms"] = {}
 
 
@@ -98,7 +102,7 @@ class WebScrapper:
         return None
 
 
-    def ao3_scrap(self, url: str):
+    def ao3_scrap(self, url: str) -> int:
         statistics = self.statistics
         print(f"ao3: {url}")
 
@@ -113,7 +117,7 @@ class WebScrapper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return
+            return 0
 
 
         words_count = htmlka.find("dd", class_="words").text.strip().replace(",", "")
@@ -129,9 +133,9 @@ class WebScrapper:
         # search for  dl class="stats"><dt class="words">Words:</dt><dd class="words">358,557</dd>
 
         # TODO: handle blue lock
-        return
+        return words_int
 
-    def ffnet_scrap(self, url: str):
+    def ffnet_scrap(self, url: str) -> int:
         statistics = self.statistics
 
         print(f"ffnet: {url}")
@@ -146,7 +150,7 @@ class WebScrapper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return
+            return 0
 
         ff_header = htmlka.find("span", class_="xgray").text
 
@@ -166,9 +170,9 @@ class WebScrapper:
         statistics["total_count"] += 1
         statistics["total_words"] += words_int
 
-        return
+        return words_int
 
-    def mffnet_scrap(self, url: str):
+    def mffnet_scrap(self, url: str) -> int:
         statistics = self.statistics
 
         print(f"mffnet: {url}")
@@ -183,7 +187,7 @@ class WebScrapper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return
+            return 0
 
         ff_header = htmlka.find("div", id="content").text
 
@@ -203,9 +207,9 @@ class WebScrapper:
         statistics["total_count"] += 1
         statistics["total_words"] += words_int
 
-        return
+        return words_int
 
-    def sb_scrap(self, url: str):
+    def sb_scrap(self, url: str) -> int:
         # block-formSectionHeader
         statistics = self.statistics
 
@@ -240,7 +244,7 @@ class WebScrapper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return
+            return 0
 
         ff_header = htmlka.find("div", class_="block-formSectionHeader").text
 
@@ -260,9 +264,9 @@ class WebScrapper:
         statistics["total_count"] += 1
         statistics["total_words"] += words_int
 
-        return
+        return words_int
 
-    def sv_scrap(self, url: str):
+    def sv_scrap(self, url: str) -> int:
         statistics = self.statistics
 
         print(f"sv: {url}")
@@ -296,7 +300,7 @@ class WebScrapper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return
+            return 0
 
         ff_header = htmlka.find("div", class_="block-formSectionHeader").text
 
@@ -316,10 +320,10 @@ class WebScrapper:
         statistics["total_count"] += 1
         statistics["total_words"] += words_int
 
-        return
+        return words_int
 
 
-    def web_scrapper_resolver(self, href: str):
+    def web_scraper_resolver(self, href: str) -> int:
         ao3_domains = {"archiveofourown.com", "archiveofourown.net", "archiveofourown.gay",
                        "ao3.org",
                        "archiveofourown.org",
@@ -337,34 +341,44 @@ class WebScrapper:
 
         domain = urlparse(href).netloc
 
+        # if domain in ao3_domains:
+        #     return self.ao3_scrap(href)
+        #
+        # if domain in sb_domains:
+        #     return self.sb_scrap(href)
+        #
+        # if domain in sv_domains:
+        #     return self.sv_scrap(href)
+        #
+        # if domain in ffnet_domains:
+        #     if domain == "www.fanfiction.net":
+        #         return self.ffnet_scrap(href)
+        #     else:
+        #         return self.mffnet_scrap(href)
+
         if domain in ao3_domains:
-            self.ao3_scrap(href)
-            return
+            return 2
 
         if domain in sb_domains:
-            self.sb_scrap(href)
-            return
+            return 7
 
         if domain in sv_domains:
-            self.sv_scrap(href)
-            return
+            return 3
 
         if domain in ffnet_domains:
             if domain == "www.fanfiction.net":
-                self.ffnet_scrap(href)
-                return
+                return 5
             else:
-                self.mffnet_scrap(href)
-                return
-
+                return 4
 
 
         self.statistics["Aborts"]["Domain is unknown"] += 1
         self.statistics["Aborts"]["Unknown urls"].append(href)
+        return 0
 
 
     def scrap(self, url: str):
-        self.web_scrapper_resolver(url)
+        self.web_scraper_resolver(url)
 
 
 def read_and_parse_html(html_filepath: str) -> BeautifulSoup | None:
@@ -386,41 +400,51 @@ def read_and_parse_html(html_filepath: str) -> BeautifulSoup | None:
         return soupchik
 
 
-def folder_case(stat: dict, element, scrapper: WebScrapper):
+def traverse_html_tree(stat: dict, element: Tag, scraper: WebScraper) -> int:
 
-    # dt - titles
-
-
+    # looks for every child of a tag. dt contains either a folder name or <a> tag with bookmark link
     for child in element.find_all("dt", recursive=False):
 
+        #--------------Folder-check----------------------
+
+        # looks for folder name
         title = child.find("h3", recursive=False)
+        # if folder name exists, there is a folder. recursively check it
         if title:
             title = title.text
             stat[title] = {}
             print(title)
+            # folder stored in dl tag nearby
             folder = child.find_next_sibling("dl", recursive=False)
-            folder_case(stat[title], folder, scrapper)
+            if folder:
+                traverse_html_tree(stat[title], folder, scraper)
 
 
+        #-------------Initialize-bookmarks-stat-----------
 
         stat["fics"] = []
+        stat["stats"] = {"words": {"Имба": 0, "Мелочь": 0,"Хрень": 0},
+                        "count": {"Имба": 0, "Мелочь": 0,"Хрень": 0},
+                         "add_dates": []}
 
-        # TODO add_Date class in vscode
-        stat["add_date"] = []
 
+        #-------------Check-bookmarks-links---------------
+
+        # find links inside tag
         links = child.find_all("a")
 
         if links:
-
             for link in links:
-                link = link.get("href")
-                # scrapper.web_scrapper_resolver(link)
-                print()
-                stat["fics"].append(link.strip())
+                href = link.get("href")
+                scraper.scrap(href)
+                add_date = link.get("add_date")
+                print(add_date)
+                stat["fics"].append(href.strip())
+                stat["stats"]["add_dates"].append(add_date)
                 # print(link)
 
 
-def bookmark_calculate(html_filepath: str) -> WebScrapper:
+def bookmark_calculate(html_filepath: str) -> WebScraper:
     bookmarks = read_and_parse_html(html_filepath)
 
     if not bookmarks:
@@ -436,36 +460,43 @@ def bookmark_calculate(html_filepath: str) -> WebScrapper:
     print()
 
     fanfics = fanfics_dt.find_next('dl')
+    if fanfics is None:
+        raise Exception("No fanfics found")
 
 
-    web_scrapper = WebScrapper()
+    web_scraper = WebScraper()
 
     try:
-        # for dt in fanfics.find_all('dt', recursive=False, limit=None):
-        #
-        #     folder_case(dt)
-        #     for link in dt.find_all('a'):
-        #         # print(link.text.strip())
-        #         href = link.get('href')
-        #         web_scrapper.scrap(href)
-        #         print()
-        # for fan in fanfics.children:
-        #     # def folder_case():
-        #     #     web_scrapper.statistics[] = { }
-        #
-        #
-        #
-        #     print(fan.text)
-        folder_case(web_scrapper.statistics["fandoms"], fanfics, web_scrapper)
-
+        traverse_html_tree(web_scraper.statistics["fandoms"], fanfics, web_scraper)
     finally:
-        web_scrapper.dispose()
+        web_scraper.dispose()
 
-    return web_scrapper
-
-
+    return web_scraper
 
 
+def append_datetime(html_filepath: str, stat) -> dict:
+    bookmark_date = re.search(r"bookmarks_(\d)+_(\d+)_(\d+)", html_filepath)
+    if bookmark_date is None:
+        print('No bookmark_date found')
+        bookmark_date = datetime.date.fromisoformat("1970-01-01")
+    else:
+        day = bookmark_date.group(2)
+        month = bookmark_date.group(1)
+        year = bookmark_date.group(3)
+        bookmark_date = datetime.date(int(year)+2000, int(month), int(day))
+
+    stat = {"datetime": f"{datetime.datetime.now().isoformat()}",
+            "bookmark_date": f"{bookmark_date.isoformat()}",
+            "scraped_info": stat }
+
+    return stat
+
+def write_json(html_filepath: str, stat: dict):
+
+    filename = os.path.basename(html_filepath).removesuffix(".html")
+    filename = f"stat_{filename}.json"
+    with open(filename, 'w', encoding="utf-8") as f:
+        json.dump(stat, f, ensure_ascii=False, indent=4)
 
 def main():
 
@@ -480,24 +511,20 @@ def main():
         print('No arguments provided')
         exit(1)
 
-    web_scrapper = bookmark_calculate(html_filepath)
+    web_scraper = bookmark_calculate(html_filepath)
 
-    # web_scrapper = WebScrapper()
-    # web_scrapper.scrap("")
+    # web_scraper = WebScraper()
+    # web_scraper.scrap("")
 
-    statistics = web_scrapper.statistics
+    statistics = web_scraper.statistics
 
-    bookmark_date = re.search(r"bookmarks_(\d)+_(\d+)_(\d+)", html_filepath)
-    day = bookmark_date.group(2)
-    month = bookmark_date.group(1)
-    year = bookmark_date.group(3)
-    bookmark_date = datetime.date(int(year)+2000, int(month), int(day))
+    statistics = append_datetime(html_filepath, statistics)
 
-    info = {"datetime": f"{datetime.datetime.now().isoformat()}",
-            "bookmark_date": f"{bookmark_date.isoformat()}",
-            "scrapped_info": statistics }
-    print(json.dumps(info, indent=4, sort_keys=True, ensure_ascii=False))
-    print(f"{statistics['total_words']:,}")
+    print(json.dumps(statistics, indent=4, sort_keys=False, ensure_ascii=False))
+
+    write_json(html_filepath, statistics)
+
+    print(f"{statistics["scraped_info"]['total_words']:,}")
 
 
 
