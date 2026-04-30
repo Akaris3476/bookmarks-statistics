@@ -5,12 +5,8 @@ import os
 import random
 import time
 from json import JSONDecodeError
-from linecache import cache
-from tabnanny import check
 from typing import Callable
 from urllib.parse import urlparse
-
-from pygments.lexer import words
 from selenium import webdriver
 from selenium.webdriver.chrome.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
