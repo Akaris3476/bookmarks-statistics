@@ -4,13 +4,15 @@ import json
 import os
 import random
 import time
-from itertools import count
+from json import JSONDecodeError
+from linecache import cache
+from tabnanny import check
 from typing import Callable
 from urllib.parse import urlparse
+
+from pygments.lexer import words
 from selenium import webdriver
-import selenium
 from selenium.webdriver.chrome.webdriver import WebDriver
-from selenium.webdriver.common import by
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
@@ -20,19 +22,46 @@ import re
 from bs4 import BeautifulSoup, Tag
 
 
+class Cache:
+    def __init__(self, filename: str):
+        self.filename = filename
+        self.cached_stat = self._load_cache(self.filename)
+
+    def _load_cache(self, filename: str) -> dict:
+        if os.path.exists(filename):
+            try:
+                with open(filename, 'r', encoding="utf-8") as f:
+                    return json.load(f)
+            except JSONDecodeError:
+                return {}
+        else:
+            with open(filename, 'w', encoding="utf-8") as f:
+                return {}
+
+    def get(self, key: str) -> int | None:
+        if key in self.cached_stat:
+            return self.cached_stat[key]
+        else:
+            return None
+
+    def set(self, key: str, value: int) -> None:
+        self.cached_stat[key] = value
+
+    def write(self):
+        json.dump(self.cached_stat, open(self.filename, 'w', encoding="utf-8"), ensure_ascii=False, indent=4)
+        print("Cache written")
+
+
 class WebScraper:
 
-    def dispose(self):
-        self.driver.quit()
-
+    # def dispose(self):
+    #     self.driver.quit()
 
     statistics: dict[str, int | dict ] = {}
 
-
     def __init__(self):
 
-        self.statistics["total_count"] = 0
-        self.statistics["total_words"] = 0
+        self.cache = None
         self.statistics["Aborts"]: dict[str, int | list[str]] = { "Aborts Count": 0,
                                                                   "Aborts Urls": [],
                                                                   "Domain is unknown": 0,
@@ -48,21 +77,20 @@ class WebScraper:
         options.add_argument(
             "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
         )
-        options.add_argument("--headless=new")
+        # options.add_argument("--headless=new")
         self.driver = webdriver.Chrome(options=options)
 
 
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
-    }
+    # headers = {
+    #     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    #     "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
+    # }
     timeout = 15
     small_timeout = 7
-    fail_retries = 6
+    fail_retries = 3
 
     def make_request(self, url: str, wait_and_find: Callable[[WebDriver, int], WebElement]) -> BeautifulSoup | None:
-        headers = self.headers
+        # headers = self.headers
         fail_retries = self.fail_retries
         timeout = self.timeout
         driver = self.driver
@@ -70,13 +98,13 @@ class WebScraper:
 
 
         driver.set_page_load_timeout(timeout)
+
         for attempt in range(fail_retries):
             try:
                 print("initial waiting...")
-                time.sleep(random.uniform(2, 5))
+                time.sleep(random.uniform(3, 6))
 
                 driver.get(url)
-
 
                 element = wait_and_find(driver, self.small_timeout)
                 print("element found")
@@ -89,11 +117,9 @@ class WebScraper:
                 return htmlka
 
             except Exception as e:
-                print("ERROR!!! Trying again...")
-                print("error waiting...")
-                time.sleep(random.uniform(5, 10))
-
-                # print(f"ERROR!! {e}. Trying again...")
+                print("ERROR!!! Waiting before trying again...")
+                print()
+                time.sleep(random.uniform(7, 11))
 
 
         aborts_statistics["Aborts Count"] += 1
@@ -103,7 +129,6 @@ class WebScraper:
 
 
     def ao3_scrap(self, url: str) -> int:
-        statistics = self.statistics
         print(f"ao3: {url}")
 
         def element_search(driver: WebDriver,timeout: int):
@@ -117,7 +142,7 @@ class WebScraper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return 0
+            return 1
 
 
         words_count = htmlka.find("dd", class_="words").text.strip().replace(",", "")
@@ -125,19 +150,12 @@ class WebScraper:
         words_int = int(words_count)
         print(f"Words: {words_int:,}")
 
-
-
-        statistics["total_count"] += 1
-        statistics["total_words"] += words_int
-
         # search for  dl class="stats"><dt class="words">Words:</dt><dd class="words">358,557</dd>
 
-        # TODO: handle blue lock
+        # TODO: handle locked out titles (i.e. blue lock) (solved with logging in in browser before scraping)
         return words_int
 
     def ffnet_scrap(self, url: str) -> int:
-        statistics = self.statistics
-
         print(f"ffnet: {url}")
 
         def element_search(driver: WebDriver,timeout: int):
@@ -150,7 +168,7 @@ class WebScraper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return 0
+            return 1
 
         ff_header = htmlka.find("span", class_="xgray").text
 
@@ -158,7 +176,7 @@ class WebScraper:
 
         words_section = re.search(r'Words:\s*(\d+(?:[,.]\d+)?)(?:[kK]\+)?', ff_header)
 
-        print(words_section.group(0))
+        # print(words_section.group(0))
         words_count = words_section.group(1).replace(",", "").replace(".", "")
         words_int = int(words_count)
 
@@ -167,14 +185,9 @@ class WebScraper:
 
         print(f"Words: {words_int:,}")
 
-        statistics["total_count"] += 1
-        statistics["total_words"] += words_int
-
         return words_int
 
     def mffnet_scrap(self, url: str) -> int:
-        statistics = self.statistics
-
         print(f"mffnet: {url}")
 
         def element_search(driver: WebDriver, timeout: int):
@@ -187,7 +200,7 @@ class WebScraper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return 0
+            return 1
 
         ff_header = htmlka.find("div", id="content").text
 
@@ -195,7 +208,7 @@ class WebScraper:
 
         words_section = re.search(r'Words:\s*(\d+(?:\.\d+)?)(?:[kK]\+)?', ff_header)
 
-        print(words_section.group(0))
+        # print(words_section.group(0))
         words_count = words_section.group(1).replace(",", "").replace(".", "")
         words_int = int(words_count)
 
@@ -204,26 +217,21 @@ class WebScraper:
 
         print(f"Words: {words_int:,}")
 
-        statistics["total_count"] += 1
-        statistics["total_words"] += words_int
-
         return words_int
 
     def sb_scrap(self, url: str) -> int:
         # block-formSectionHeader
-        statistics = self.statistics
 
         print(f"sb: {url}")
 
         def element_search(driver,timeout):
-            try:
-                close_btn = WebDriverWait(driver, timeout/2).until(
-                    ec.element_to_be_clickable((By.CLASS_NAME, "fc-button-label"))
-                )
-                close_btn.click()
-            except:
-                pass
-
+            # try:
+            #     close_btn = WebDriverWait(driver, timeout/2).until(
+            #         ec.element_to_be_clickable((By.CLASS_NAME, "fc-button-label"))
+            #     )
+            #     close_btn.click()
+            # except:
+            #     pass
 
             try:
                 element = WebDriverWait(driver, timeout).until(
@@ -235,7 +243,7 @@ class WebScraper:
 
 
             element = WebDriverWait(driver, timeout).until(
-                ec.visibility_of_element_located((By.CLASS_NAME, "block-formSectionHeader"))
+                ec.presence_of_element_located((By.CLASS_NAME, "block-formSectionHeader"))
             )
 
             return element
@@ -244,7 +252,7 @@ class WebScraper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return 0
+            return 1
 
         ff_header = htmlka.find("div", class_="block-formSectionHeader").text
 
@@ -252,7 +260,10 @@ class WebScraper:
         pattern: str = r"(\d+)(.\d+)?(?:[kK]\swords)"
         words_section = re.search(pattern, ff_header)
 
-        print(words_section.group(0))
+        # print(words_section.group(0))
+        if words_section is None:
+            print("WARNING! Pattern not found. Returning 0")
+            return 0
         words_count = words_section.group(1).replace(",", "").replace(".", "")
         words_int = int(words_count)
 
@@ -260,26 +271,20 @@ class WebScraper:
             words_int *= 1000
 
         print(f"Words: {words_int:,}")
-
-        statistics["total_count"] += 1
-        statistics["total_words"] += words_int
 
         return words_int
 
     def sv_scrap(self, url: str) -> int:
-        statistics = self.statistics
-
         print(f"sv: {url}")
 
         def element_search(driver,timeout):
-            try:
-                close_btn = WebDriverWait(driver, timeout/2).until(
-                    ec.element_to_be_clickable((By.CLASS_NAME, "css-1jqk1n3"))
-                )
-                close_btn.click()
-            except:
-                pass
-
+            # try:
+            #     close_btn = WebDriverWait(driver, timeout/2).until(
+            #         ec.element_to_be_clickable((By.CLASS_NAME, "css-1jqk1n3"))
+            #     )
+            #     close_btn.click()
+            # except:
+            #     pass
 
             try:
                 element = WebDriverWait(driver, timeout).until(
@@ -289,9 +294,8 @@ class WebScraper:
             except:
                 pass
 
-
             element = WebDriverWait(driver, timeout).until(
-                ec.visibility_of_element_located((By.CLASS_NAME, "block-formSectionHeader"))
+                ec.presence_of_element_located((By.CLASS_NAME, "block-formSectionHeader"))
             )
 
             return element
@@ -300,7 +304,7 @@ class WebScraper:
 
         if htmlka is None:
             print(f"ERROR! htmlka is null")
-            return 0
+            return 1
 
         ff_header = htmlka.find("div", class_="block-formSectionHeader").text
 
@@ -308,7 +312,7 @@ class WebScraper:
         pattern: str = r"(\d+)(.\d+)?(?:[kK]\swords)"
         words_section = re.search(pattern, ff_header)
 
-        print(words_section.group(0))
+        # print(words_section.group(0))
         words_count = words_section.group(1).replace(",", "").replace(".", "")
         words_int = int(words_count)
 
@@ -317,13 +321,61 @@ class WebScraper:
 
         print(f"Words: {words_int:,}")
 
-        statistics["total_count"] += 1
-        statistics["total_words"] += words_int
+        return words_int
+
+    def ficbook_scrap(self, url: str) -> int:
+        print(f"fb: {url}")
+
+        def element_search(driver,timeout):
+            # try:
+            #     close_btn = WebDriverWait(driver, timeout/2).until(
+            #         ec.element_to_be_clickable((By.CLASS_NAME, "ds-btn-primary"))
+            #     )
+            #     close_btn.click()
+            # except:
+            #     pass
+
+            element = WebDriverWait(driver, timeout).until(
+                ec.visibility_of_element_located((By.CLASS_NAME, "description"))
+            )
+
+            return element
+
+        htmlka = self.make_request(url, element_search)
+
+        if htmlka is None:
+            print(f"ERROR! htmlka is null")
+            return 1
+
+        ff_header = htmlka.find("div", class_="description").text
+        # print(ff_header)
+
+        pattern: str = r",\s(\d+(?:\s\d+)?)\sслов(?:[ао])?,"
+        words_section = re.search(pattern, ff_header)
+
+        # print(words_section.group(0))
+        words_count = words_section.group(1).replace("\xa0", "")
+        words_int = int(words_count)
+
+        print(f"Words: {words_int:,}")
 
         return words_int
 
+    def check_cache(self, href: str) -> int | None:
+        if self.cache:
+            return self.cache.get(href)
+        return None
+
+    def set_cache(self, cache: Cache) -> None:
+        self.cache = cache
 
     def web_scraper_resolver(self, href: str) -> int:
+        cached_value = self.check_cache(href)
+        if cached_value:
+            print(f"Cache hit: {href}")
+            print(f"Words: {cached_value:,}\n")
+            return cached_value
+
         ao3_domains = {"archiveofourown.com", "archiveofourown.net", "archiveofourown.gay",
                        "ao3.org",
                        "archiveofourown.org",
@@ -339,46 +391,65 @@ class WebScraper:
 
         sv_domains = {"forums.sufficientvelocity.com"}
 
+        ficbook_domains = {"ficbook.net"}
+
         domain = urlparse(href).netloc
 
-        # if domain in ao3_domains:
-        #     return self.ao3_scrap(href)
-        #
-        # if domain in sb_domains:
-        #     return self.sb_scrap(href)
-        #
-        # if domain in sv_domains:
-        #     return self.sv_scrap(href)
-        #
-        # if domain in ffnet_domains:
-        #     if domain == "www.fanfiction.net":
-        #         return self.ffnet_scrap(href)
-        #     else:
-        #         return self.mffnet_scrap(href)
+        print()
 
+        words_count = 0
         if domain in ao3_domains:
-            return 2
+            words_count = self.ao3_scrap(href)
 
         if domain in sb_domains:
-            return 7
+            words_count = self.sb_scrap(href)
+
 
         if domain in sv_domains:
-            return 3
+            words_count = self.sv_scrap(href)
+
 
         if domain in ffnet_domains:
             if domain == "www.fanfiction.net":
-                return 5
+                words_count = self.ffnet_scrap(href)
             else:
-                return 4
+                words_count = self.mffnet_scrap(href)
 
+
+        if domain in ficbook_domains:
+            words_count = self.ficbook_scrap(href)
+
+
+        if words_count != 0:
+            self.cache.set(href, words_count)
+            return words_count
+
+        # DEBUG
+        # if domain in ao3_domains:
+        #     return 2
+        #
+        # if domain in sb_domains:
+        #     return 7
+        #
+        # if domain in sv_domains:
+        #     return 3
+        #
+        # if domain in ficbook_domains:
+        #     return 3
+        #
+        # if domain in ffnet_domains:
+        #     if domain == "www.fanfiction.net":
+        #         return 5
+        #     else:
+        #         return 4
 
         self.statistics["Aborts"]["Domain is unknown"] += 1
         self.statistics["Aborts"]["Unknown urls"].append(href)
         return 0
 
 
-    def scrap(self, url: str):
-        self.web_scraper_resolver(url)
+    def scrap(self, url: str) -> int:
+        return self.web_scraper_resolver(url)
 
 
 def read_and_parse_html(html_filepath: str) -> BeautifulSoup | None:
@@ -400,33 +471,21 @@ def read_and_parse_html(html_filepath: str) -> BeautifulSoup | None:
         return soupchik
 
 
-def traverse_html_tree(stat: dict, element: Tag, scraper: WebScraper) -> int:
+def traverse_html_tree(stat: dict, element: Tag, scraper: WebScraper) -> dict:
+
+    # -------------Initialize-bookmarks-stat-----------
+
+    stat["fics"] = []
+    if "stats" not in stat:
+        stat["stats"] = {"words": {"Годно": 0, "Мелочь": 0, "Хрень": 0},
+                         "count": {"Годно": 0, "Мелочь": 0, "Хрень": 0},
+                         "add_dates": []}
+
+
+    #----------------Start-iterating--------------------
 
     # looks for every child of a tag. dt contains either a folder name or <a> tag with bookmark link
     for child in element.find_all("dt", recursive=False):
-
-        #--------------Folder-check----------------------
-
-        # looks for folder name
-        title = child.find("h3", recursive=False)
-        # if folder name exists, there is a folder. recursively check it
-        if title:
-            title = title.text
-            stat[title] = {}
-            print(title)
-            # folder stored in dl tag nearby
-            folder = child.find_next_sibling("dl", recursive=False)
-            if folder:
-                traverse_html_tree(stat[title], folder, scraper)
-
-
-        #-------------Initialize-bookmarks-stat-----------
-
-        stat["fics"] = []
-        stat["stats"] = {"words": {"Имба": 0, "Мелочь": 0,"Хрень": 0},
-                        "count": {"Имба": 0, "Мелочь": 0,"Хрень": 0},
-                         "add_dates": []}
-
 
         #-------------Check-bookmarks-links---------------
 
@@ -435,13 +494,59 @@ def traverse_html_tree(stat: dict, element: Tag, scraper: WebScraper) -> int:
 
         if links:
             for link in links:
-                href = link.get("href")
-                scraper.scrap(href)
+                href = link.get("href").strip()
+                stat["fics"].append(href)
+
+                words = scraper.scrap(href)
+
+                dl_parent = link.find_parent("dl")
+                if dl_parent:
+                    folder_name = dl_parent.find_previous_sibling("dt").find("h3", recursive=False)
+                    if folder_name:
+                        folder_name = folder_name.text.lower()
+                        if folder_name == "мелочь":
+                            stat["stats"]["words"]["Мелочь"] += words
+                            stat["stats"]["count"]["Мелочь"] += 1
+                        elif folder_name == "хрень":
+                            stat["stats"]["words"]["Хрень"] += words
+                            stat["stats"]["count"]["Хрень"] += 1
+                        else:
+                            stat["stats"]["words"]["Годно"] += words
+                            stat["stats"]["count"]["Годно"] += 1
+                    else:
+                        stat["stats"]["words"]["Годно"] += words
+                        stat["stats"]["count"]["Годно"] += 1
+
                 add_date = link.get("add_date")
-                print(add_date)
-                stat["fics"].append(href.strip())
                 stat["stats"]["add_dates"].append(add_date)
-                # print(link)
+
+        #--------------Folder-check----------------------
+
+
+        # looks for folder name
+        title = child.find("h3", recursive=False)
+        # if folder name exists, there is a folder. recursively check it
+        if title:
+            title = title.text
+            stat[title] = {}
+            # print(title)
+
+            # folder stored in dl tag nearby
+            folder = child.find_next_sibling("dl", recursive=False)
+            if folder:
+                stats = traverse_html_tree(stat[title], folder, scraper)
+                # print(stats)
+                stat["stats"]["words"]["Годно"] += stats["words"]["Годно"]
+                stat["stats"]["count"]["Годно"] += stats["count"]["Годно"]
+
+                stat["stats"]["words"]["Мелочь"] += stats["words"]["Мелочь"]
+                stat["stats"]["count"]["Мелочь"] += stats["count"]["Мелочь"]
+
+                stat["stats"]["words"]["Хрень"] += stats["words"]["Хрень"]
+                stat["stats"]["count"]["Хрень"] += stats["count"]["Хрень"]
+
+
+    return stat["stats"]
 
 
 def bookmark_calculate(html_filepath: str) -> WebScraper:
@@ -456,7 +561,7 @@ def bookmark_calculate(html_filepath: str) -> WebScraper:
     if fanfics_dt is None:
         print('No "Прочитано" folder found')
         exit(1)
-    print(fanfics_dt.text)
+    print(f"Fanfics folder: '{fanfics_dt.text}'")
     print()
 
     fanfics = fanfics_dt.find_next('dl')
@@ -465,11 +570,31 @@ def bookmark_calculate(html_filepath: str) -> WebScraper:
 
 
     web_scraper = WebScraper()
+    web_scraper.set_cache(Cache("cache_bookmarks.json"))
+
+    input("Giving you time for preparation. Press any key to continue...")
+
 
     try:
-        traverse_html_tree(web_scraper.statistics["fandoms"], fanfics, web_scraper)
+        stats = traverse_html_tree(web_scraper.statistics["fandoms"], fanfics, web_scraper)
+        print(stats)
+
+        stat = web_scraper.statistics
+        stat["total_stats"] = {"total_words": 0, "total_count": 0}
+
+        stat["total_stats"]["total_words"] += stats["words"]["Годно"]
+        stat["total_stats"]["total_count"] += stats["count"]["Годно"]
+
+        stat["total_stats"]["total_words"] += stats["words"]["Мелочь"]
+        stat["total_stats"]["total_count"] += stats["count"]["Мелочь"]
+
+        stat["total_stats"]["total_words"] += stats["words"]["Хрень"]
+        stat["total_stats"]["total_count"] += stats["count"]["Хрень"]
+
     finally:
-        web_scraper.dispose()
+        web_scraper.cache.write()
+        # web_scraper.dispose()
+        print()
 
     return web_scraper
 
@@ -513,6 +638,7 @@ def main():
 
     web_scraper = bookmark_calculate(html_filepath)
 
+    # debug. scraps only one link
     # web_scraper = WebScraper()
     # web_scraper.scrap("")
 
@@ -520,15 +646,11 @@ def main():
 
     statistics = append_datetime(html_filepath, statistics)
 
-    print(json.dumps(statistics, indent=4, sort_keys=False, ensure_ascii=False))
+    # print(json.dumps(statistics, indent=4, sort_keys=False, ensure_ascii=False))
 
     write_json(html_filepath, statistics)
 
-    print(f"{statistics["scraped_info"]['total_words']:,}")
-
-
-
-
+    # TODO: prettify (сомнительно)
 
 
 if __name__ == '__main__':
