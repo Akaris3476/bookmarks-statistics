@@ -27,21 +27,28 @@ class Cache:
         if os.path.exists(filename):
             try:
                 with open(filename, 'r', encoding="utf-8") as f:
+                    print(f"Reading from cache: {filename}")
                     return json.load(f)
+
             except JSONDecodeError:
-                return {}
+                print("JSONDecodeError in cache")
+                return {"datetime": f"{datetime.datetime.now().isoformat()}",
+                        "words_stats": {}}
+
         else:
             with open(filename, 'w', encoding="utf-8") as f:
-                return {}
+                print(f"Creating new cache file {self.filename}")
+                return {"datetime": f"{datetime.datetime.now().isoformat()}",
+                        "words_stats": {}}
 
     def get(self, key: str) -> int | None:
-        if key in self.cached_stat:
-            return self.cached_stat[key]
+        if key in self.cached_stat["words_stats"]:
+            return self.cached_stat["words_stats"][key]
         else:
             return None
 
     def set(self, key: str, value: int) -> None:
-        self.cached_stat[key] = value
+        self.cached_stat["words_stats"][key] = value
 
     def write(self):
         json.dump(self.cached_stat, open(self.filename, 'w', encoding="utf-8"), ensure_ascii=False, indent=4)
@@ -545,34 +552,41 @@ def traverse_html_tree(stat: dict, element: Tag, scraper: WebScraper) -> dict:
     return stat["stats"]
 
 
-def bookmark_calculate(html_filepath: str) -> WebScraper:
+def bookmark_calculate(html_filepath: str, cache_filepath: str | None) -> WebScraper:
     bookmarks = read_and_parse_html(html_filepath)
 
     if not bookmarks:
         exit(1)
 
-    # folder where fanfics stored
-    fanfics_dt = bookmarks.find("h3", string="Прочитано")
+    # folder where fics stored
+    fics_dt = bookmarks.find("h3", string="Прочитано")
 
-    if fanfics_dt is None:
+    if fics_dt is None:
         print('No "Прочитано" folder found')
         exit(1)
-    print(f"Fanfics folder: '{fanfics_dt.text}'")
+    print(f"Fics folder: '{fics_dt.text}'")
     print()
 
-    fanfics = fanfics_dt.find_next('dl')
-    if fanfics is None:
-        raise Exception("No fanfics found")
+    fics = fics_dt.find_next('dl')
+    if fics is None:
+        raise Exception("No fics found")
 
 
     web_scraper = WebScraper()
-    web_scraper.set_cache(Cache("cache_bookmarks.json"))
+
+    # TODO: cache path validation
+    if cache_filepath is not None:
+        cache_filename = cache_filepath.split('/')[-1]
+    else:
+        cache_filename = f"cache_bookmarks_{datetime.date.today()}.json"
+
+    web_scraper.set_cache(Cache(cache_filename))
 
     input("Giving you time for preparation. Press any key to continue...")
 
 
     try:
-        stats = traverse_html_tree(web_scraper.statistics["fandoms"], fanfics, web_scraper)
+        stats = traverse_html_tree(web_scraper.statistics["fandoms"], fics, web_scraper)
         print(stats)
 
         stat = web_scraper.statistics
@@ -622,17 +636,23 @@ def write_json(html_filepath: str, stat: dict):
 def main():
 
     arg_parser = argparse.ArgumentParser(description='Calculates amount of words of fanfics in bookmarks')
-    arg_parser.add_argument('input', type = str, nargs="+", default=None, help = 'Path to html file')
+    arg_parser.add_argument('bookmarks_file', type = str, default=None, help = 'Path to html file')
+    arg_parser.add_argument('cache_file', type = str, nargs="?", default=None, help = 'Path to cache file. '
+                                                                                      'Notice, it takes only filename. '
+                                                                                      'Cache will be written only in directory of this file.')
+    # cache arg here only to take desirable file name to read in case of multiple cache files
+    # all cache needed to be in the same directory as this file
 
     args = arg_parser.parse_args()
 
-    html_filepath: str = args.input[0]
+    html_filepath: str = args.bookmarks_file
+    cache_filepath: str = args.cache_file
 
     if html_filepath is None:
         print('No arguments provided')
         exit(1)
 
-    web_scraper = bookmark_calculate(html_filepath)
+    web_scraper = bookmark_calculate(html_filepath, cache_filepath)
 
     # debug. scraps only one link
     # web_scraper = WebScraper()
@@ -646,7 +666,6 @@ def main():
 
     write_json(html_filepath, statistics)
 
-    # TODO: prettify (сомнительно)
 
 
 if __name__ == '__main__':
