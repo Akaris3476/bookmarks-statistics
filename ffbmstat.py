@@ -498,9 +498,10 @@ def traverse_html_tree(stat: dict, element: Tag, scraper: WebScraper) -> dict:
         if links:
             for link in links:
                 href = link.get("href").strip()
-                stat["fics"].append(href)
+                fic = {"link": href, "words": 0, "add_date": None}
 
                 words = scraper.scrap(href)
+                fic["words"] = words
 
                 dl_parent = link.find_parent("dl")
                 if dl_parent:
@@ -522,6 +523,8 @@ def traverse_html_tree(stat: dict, element: Tag, scraper: WebScraper) -> dict:
 
                 add_date = link.get("add_date")
                 stat["stats"]["add_dates"].append(add_date)
+                fic["add_date"] = add_date
+                stat["fics"].append(fic)
 
         #--------------Folder-check----------------------
 
@@ -609,7 +612,7 @@ def bookmark_calculate(html_filepath: str, cache_filepath: str | None) -> WebScr
     return web_scraper
 
 
-def append_datetime(html_filepath: str, stat) -> dict:
+def append_datetime(html_filepath: str, stat, cache_filename: str) -> dict:
     bookmark_date = re.search(r"bookmarks_(\d)+_(\d+)_(\d+)", html_filepath)
     if bookmark_date is None:
         print('No bookmark_date found')
@@ -622,6 +625,7 @@ def append_datetime(html_filepath: str, stat) -> dict:
 
     stat = {"datetime": f"{datetime.datetime.now().isoformat()}",
             "bookmark_date": f"{bookmark_date.isoformat()}",
+            "used_cache": cache_filename,
             "scraped_info": stat }
 
     return stat
@@ -660,7 +664,7 @@ def main():
 
     statistics = web_scraper.statistics
 
-    statistics = append_datetime(html_filepath, statistics)
+    statistics = append_datetime(html_filepath, statistics, web_scraper.cache.filename)
 
     # print(json.dumps(statistics, indent=4, sort_keys=False, ensure_ascii=False))
 
